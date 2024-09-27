@@ -36,24 +36,71 @@ NONE
 Make sure to replace parameters with the appropriate values. For example, if the user asks for showtimes for the movie "The Batman" in "New York", the response should be in the following:
 
 {
-    "function": "get_showtimes('The Batman', 'New York')"
+    "functions": ["get_showtimes('The Batman', 'New York')"]
 }
 
 If a function needs to be called, the response should only contain JSON data with the function name. For example, if the user asks for now playing movies, the response should be in the following:
 {
-    "function": "get_now_playing_movies()"
+    "functions": ["get_now_playing_movies()"]
 }
 
-If there is no appropriate function to call, "function" should be set to "NONE".
+If there are multiple functions to call, the response should contain multiple function names in the list:
+{
+    "functions": ["get_now_playing_movies()", "get_showtimes('The Batman', '95112')"]
+}
+
+If multiple functions need to be called, but more information is requiered first, append the callback to request the information. For example, if the user asks for now playing movies and showtimes for any random movie, append the callback function to request the information first:
+{
+    "functions": ["get_now_playing_movies()", "callback()"]
+}
+
+Then, when the required information is provided, the follow-up response should call the next function with the required information. Remember to remove 'get_now_playing_movies()' from the list of functions to call once the information is provided and the next function(s) are being decided:
+{
+    "functions": ["get_showtimes('The Batman', '95112')"]
+}
+
+If there is no appropriate function to call, "functions" should be set to an empty array (i.e., []).
 """
 
-def parse_function_signature(signature):
-    # Remove the parentheses and split by the first '('
-    func_name, params = signature.split('(', 1)
-    # Remove the closing parenthesis and split by ','
-    params = params.rstrip(')').split(', ')
+def parse_function_signatures(function_signatures):
+    result = []
+    for signature in function_signatures:
+        # Remove the parentheses and split by the first '('
+        func_name, params = signature.split('(', 1)
+        # Remove the closing parenthesis and split by ','
+        params = params.rstrip(')').split(', ')
+        result.append((func_name, params))
 
-    return func_name, params
+    return result
+
+async def process_completion(function_call_history, completion):
+    func_json = json.loads(completion.choices[0].message.content)
+    function_signatures = func_json['functions']
+    functions = parse_function_signatures(function_signatures)
+    print("Functions to Call: ", functions)
+    if functions.count == 0:
+        return None
+
+    context = ""
+    for func_name, params in functions:
+        if func_name == "get_now_playing_movies":
+            context += movie_functions.get_now_playing_movies()
+        elif func_name == "get_showtimes":
+            title = params[0]
+            location = params[1]
+            print("Title: ", title)
+            print("Location: ", location)
+            context += movie_functions.get_showtimes(title, location)
+        elif func_name == "get_reviews":
+            movie_id = params[0]
+            print("Movie ID: ", movie_id)
+            context += movie_functions.get_reviews(movie_id)
+        elif func_name == "callback":
+            function_call_history.append({"role": "system", "content": f"Here's the requested callback with additional information: {context} \n\n Please use this information to decide the next function(s) to call."})
+            completion = await client.chat.completions.create(messages=function_call_history, **gen_kwargs)
+            context += await process_completion(function_call_history, completion)
+    
+    return context
 
 async def function_calling(client, message_history):
     # Function calling
@@ -62,29 +109,9 @@ async def function_calling(client, message_history):
     completion = await client.chat.completions.create(messages=function_call_history, **gen_kwargs)
     
     try:
-        func_json = json.loads(completion.choices[0].message.content)
-        function_call = func_json['function']
-        print("Function Call: ", function_call)
-        if function_call == "NONE":
-            return None
-        
-        func_name, params = parse_function_signature(function_call)
+        context = await process_completion(function_call_history, completion)
 
-        print("Function: ", func_name)
-        print("Parameters: ", params)
-
-        if func_name == "get_now_playing_movies":
-            return movie_functions.get_now_playing_movies()
-        elif func_name == "get_showtimes":
-            title = params[0]
-            location = params[1]
-            print("Title: ", title)
-            print("Location: ", location)
-            return movie_functions.get_showtimes(title, location)
-        elif func_name == "get_reviews":
-            movie_id = params[0]
-            print("Movie ID: ", movie_id)
-            return movie_functions.get_reviews(movie_id)
+        return context
                                 
     except Exception as e:
         print("Unexpected Error: ", e)
