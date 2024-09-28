@@ -49,9 +49,14 @@ If there are multiple functions to call, the response should contain multiple fu
     "functions": ["get_now_playing_movies()", "get_showtimes('The Batman', '95112')"]
 }
 
-If multiple functions need to be called, but more information is requiered first, append the callback to request the information. For example, if the user asks for now playing movies and showtimes for any random movie, append the callback function to request the information first:
+If multiple functions need to be called, but more information is required first, append the callback to request the information. For example, if the user asks for now playing movies and showtimes for any random movie, append the callback function to request the information first:
 {
     "functions": ["get_now_playing_movies()", "callback()"]
+}
+
+You can also request a specific piece of information. For example, if the user asks for showtimes for a movie, but the location is missing, you can request the location first:
+{
+    "functions": ["get_showtimes('The Batman', 'callback()')"]
 }
 
 Then, when the required information is provided, the follow-up response should call the next function with the required information. Remember to remove 'get_now_playing_movies()' from the list of functions to call once the information is provided and the next function(s) are being decided:
@@ -61,6 +66,28 @@ Then, when the required information is provided, the follow-up response should c
 
 If there is no appropriate function to call, "functions" should be set to an empty array (i.e., []).
 """
+
+function_call_history = [{"role": "system", "content": FUNCTION_SYSTEM_PROMPT}]
+
+function_signatures = {
+    "get_now_playing_movies()",
+    "get_showtimes(title, location)",
+    "get_reviews(movie_id)",
+    "callback()"
+}
+
+def parse_missing_info(functions):
+    context = ""
+    for func_name, params in functions:
+        for param in params:
+            if "callback()" in param:
+                print(f"Callback detected in parameters for {func_name}; Requesting more information.")
+                # Replace callback() with [Missing Info]
+                params[params.index(param)] = "[Missing Info]"
+                matching_signature = next(filter(lambda s: func_name in s, function_signatures), None)
+                context += f"Following information needed from the user for '{matching_signature}'; {params}\n"
+    
+    return context
 
 def parse_function_signatures(function_signatures):
     result = []
@@ -73,43 +100,54 @@ def parse_function_signatures(function_signatures):
 
     return result
 
-async def process_completion(function_call_history, completion):
+async def process_function_call_response(completion):
+    function_call_history.append({"role": "assistant", "content": completion.choices[0].message.content})
     func_json = json.loads(completion.choices[0].message.content)
     function_signatures = func_json['functions']
-    functions = parse_function_signatures(function_signatures)
-    print("Functions to Call: ", functions)
-    if functions.count == 0:
+    functions_to_call = parse_function_signatures(function_signatures)
+    print("Functions to Call: ", functions_to_call)
+    if functions_to_call.count == 0:
         return None
 
     context = ""
-    for func_name, params in functions:
+    context += parse_missing_info(functions_to_call)
+    if context:
+        return context
+
+    for func_name, params in functions_to_call:
         if func_name == "get_now_playing_movies":
+            print("Calling get_now_playing_movies()")
             context += movie_functions.get_now_playing_movies()
         elif func_name == "get_showtimes":
             title = params[0]
             location = params[1]
+            print("Calling get_showtimes()")
             print("Title: ", title)
             print("Location: ", location)
             context += movie_functions.get_showtimes(title, location)
         elif func_name == "get_reviews":
             movie_id = params[0]
+            print("Calling get_reviews()")
             print("Movie ID: ", movie_id)
             context += movie_functions.get_reviews(movie_id)
         elif func_name == "callback":
-            function_call_history.append({"role": "system", "content": f"Here's the requested callback with additional information: {context} \n\n Please use this information to decide the next function(s) to call."})
-            completion = await client.chat.completions.create(messages=function_call_history, **gen_kwargs)
-            context += await process_completion(function_call_history, completion)
+            if context:
+                print("Invoking callback with additional context.")
+                function_call_history.append({"role": "system", "content": f"Here's the requested callback with additional information: {context} \n\n Please use this information to decide the next function(s) to call."})
+                completion = await client.chat.completions.create(messages=function_call_history, **gen_kwargs)
+                context += await process_function_call_response(completion)
+            else:
+                print("No context to provide callback; Ignoring callback request.")
     
     return context
 
 async def function_calling(client, message_history):
-    # Function calling
-    function_call_history = [{"role": "system", "content": FUNCTION_SYSTEM_PROMPT}]
+    # Append the last message from the user
     function_call_history.append({"role": "user", "content": message_history[-1]["content"]})
     completion = await client.chat.completions.create(messages=function_call_history, **gen_kwargs)
     
     try:
-        context = await process_completion(function_call_history, completion)
+        context = await process_function_call_response(completion)
 
         return context
                                 
