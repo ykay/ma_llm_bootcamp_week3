@@ -109,6 +109,8 @@ async def process_function_call_response(completion):
         return None
 
     context = ""
+
+    # If any of the parameters are missing, mark the missing information and return immediately to request the missing information from the user
     context += parse_missing_info(functions_to_call)
     if context:
         return context
