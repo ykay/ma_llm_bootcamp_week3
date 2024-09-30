@@ -75,6 +75,7 @@ If there is no appropriate function to call, "functions" should be set to an emp
 
 function_call_history = [{"role": "system", "content": FUNCTION_SYSTEM_PROMPT}]
 
+# Sometimes, 'callback()' will be specified as a parameter of a function response. This is replaced with '[Missing Info]' that lets the assistant know that more information should be requested from the user.
 def parse_missing_info(functions):
     context = ""
     for func_name, params in functions:

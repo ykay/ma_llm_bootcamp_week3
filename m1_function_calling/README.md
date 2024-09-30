@@ -1,20 +1,21 @@
-# Chainlit Starter App
 
-This project is a starter Chainlit application that demonstrates a simple integration with OpenAI's API. It showcases the following key features:
+# Milestone 1-6
 
-1. **OpenAI Integration**: The app is connected to OpenAI's API, allowing it to leverage state-of-the-art language models for generating responses.
+## `app.py`
+A Chainlit app that builds a movies assistant using a custom function calling mechanism. It is generaly broken down into the following functions:
 
-2. **Streaming Responses**: Instead of waiting for the entire response to be generated, the app streams the AI's response in real-time, providing a more interactive and engaging user experience.
+- `on_message()` - Handler for new messages from the user. Calls `generate_response` to generate a response to send to the user.
 
-3. **Chat History**: The application maintains a conversation history, enabling context-aware responses and allowing for more coherent and meaningful interactions.
+- `function_calling()` - In a separate conversation specifically designed to only respond in JSON, the main conversation between the user and assistant is sent as context to prompt the special LLM on what function to call next. The response is passed to `process_function_call_response` to execute the function and collect the necessary context to forward back to the main conversation (as a system message).
 
-4. **Environment Variable Management**: Sensitive information like API keys are managed securely using environment variables.
+- `process_function_call_response()` - Processes the function call JSON response to determine the function that needs to be called and to extract the parameters. The specified function is executed and the result is returned as context for the main conversation. The function call JSON is designed to indicate when more information is required to determine the next function to call or the parameter(s) to pass to a function.
 
-5. **LangSmith Integration**: The app includes LangSmith for tracing and monitoring AI interactions, which can be useful for debugging and optimizing your AI application.
+# Milestone 7
 
-As a convenience, on start of a new chat session, a system prompt is added as the first message in the chat history.
+## `app_using_openai.py`
+This replaces the custom function calls code that uses OpenAI's function call feature in its chat completion API, following the guide [here](https://platform.openai.com/docs/guides/function-calling).
 
-## Getting Started
+# Getting Started
 
 ### 1. Create a virtual environment
 
